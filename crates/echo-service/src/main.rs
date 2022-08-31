@@ -1,4 +1,5 @@
 use std::io;
+use std::env;
 use std::net::SocketAddr;
 use tokio::io::copy;
 use tokio::net::{TcpListener, TcpStream};
@@ -15,7 +16,12 @@ async fn echo(socket: &mut TcpStream, address: SocketAddr) -> io::Result<()> {
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    let listener = TcpListener::bind("127.0.0.1:8080").await?;
+    let host = env::var("HOST").unwrap_or("127.0.0.1".into());
+    let port = env::var("PORT").unwrap_or("8080".into());
+    let address = format!("{}:{}", host, port);
+    let listener = TcpListener::bind(&address).await?;
+
+    println!("Listening on {}", &address);
 
     loop {
         match listener.accept().await {
