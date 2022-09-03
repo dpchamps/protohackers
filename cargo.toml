@@ -1,4 +1,6 @@
 [workspace]
 members = [
     "crates/echo-service",
+    "crates/prime-time",
+    "crates/http-utils"
 ]
