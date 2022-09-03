@@ -5,7 +5,7 @@ pub mod tcp_listener;
 struct Status {
     version: String,
     code: u8,
-    reason: String
+    reason: String,
 }
 
 impl From<Status> for String {
@@ -16,7 +16,7 @@ impl From<Status> for String {
 
 struct Response {
     status: Status,
-    body: String
+    body: String,
 }
 
 impl From<Response> for String {

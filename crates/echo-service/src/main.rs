@@ -1,5 +1,5 @@
-use std::io;
 use std::env;
+use std::io;
 use std::net::SocketAddr;
 use tokio::io::copy;
 use tokio::net::{TcpListener, TcpStream};

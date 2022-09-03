@@ -5,7 +5,6 @@ use tokio::io;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::ReadHalf;
 
-
 enum ParseStreamError {
     StringError,
     ParseError(serde_json::Error),
@@ -108,17 +107,17 @@ impl<'a> Reader<'a> {
     }
 
     async fn read(&mut self) -> Option<String> {
-        let n = self
+        let bytes_read = self
             .socket
             .read(&mut self.buffer)
             .await
             .expect("failed to read data from socket");
 
-        if n == 0 {
+        if bytes_read == 0 {
             return None;
         }
 
-        Some(Self::create_response(&self.buffer[0..n]))
+        Some(Self::create_response(&self.buffer[0..bytes_read]))
     }
 }
 
@@ -129,19 +128,21 @@ async fn main() -> io::Result<()> {
     loop {
         match listener.accept().await {
             Ok((mut socket, address)) => {
-                let (read, mut write) = socket.split();
-                let mut reader = Reader::new(read);
+                tokio::spawn(async move {
+                    let (read, mut write) = socket.split();
+                    let mut reader = Reader::new(read);
 
-                println!("Connection Open {}", address);
+                    println!("Connection Open {}", address);
 
-                while let Some(result) = reader.read().await {
-                    write
-                        .write_all(result.as_bytes())
-                        .await
-                        .expect("Failed to write to socket");
-                }
+                    while let Some(result) = reader.read().await {
+                        write
+                            .write_all(result.as_bytes())
+                            .await
+                            .expect("Failed to write to socket");
+                    }
 
-                println!("Connection Closed {}", address);
+                    println!("Connection Closed {}", address);
+                });
             }
             Err(e) => {
                 println!("Failed to get client with error: {:?}", e)
