@@ -19,7 +19,7 @@ async fn main() -> io::Result<()> {
     let host = env::var("HOST").unwrap_or("127.0.0.1".into());
     let port = env::var("PORT").unwrap_or("8080".into());
     let address = format!("{}:{}", host, port);
-    let listener = TcpListener::bind(&address).await;
+    let listener = TcpListener::bind(&address).await?;
 
     println!("Listening on {}", &address);
 

@@ -1,10 +1,10 @@
 use http_utils::tcp_listener::ServiceTcpListener;
 use serde::{Deserialize, Serialize};
-use std::io::ErrorKind;
+
 use tokio::io;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::ReadHalf;
-use tokio::net::TcpStream;
+
 
 enum ParseStreamError {
     StringError,
@@ -40,7 +40,7 @@ impl Request {
             String::from_utf8(result.to_vec()).map_err(|_| ParseStreamError::StringError)?;
         let trimmed = result.trim();
         let parsed: Request =
-            serde_json::from_str(trimmed).map_err(|e| ParseStreamError::ParseError(e))?;
+            serde_json::from_str(trimmed).map_err(ParseStreamError::ParseError)?;
 
         match parsed.validate() {
             true => Ok(parsed),
@@ -67,7 +67,7 @@ impl Response {
             }
         }
 
-        return true;
+        true
     }
 
     fn create_is_prime(prime: bool) -> Self {
@@ -129,7 +129,7 @@ async fn main() -> io::Result<()> {
     loop {
         match listener.accept().await {
             Ok((mut socket, address)) => {
-                let (mut read, mut write) = socket.split();
+                let (read, mut write) = socket.split();
                 let mut reader = Reader::new(read);
 
                 println!("Connection Open {}", address);
