@@ -22,15 +22,10 @@ impl State {
     }
 
     fn select_prices(&self, Query { min_time, max_time }: &Query) -> Vec<i64> {
-        let mut results = vec![];
-
-        for (timestamp, price) in self.data.iter() {
-            if timestamp >= min_time && timestamp <= max_time {
-                results.push(*price as i64)
-            }
-        }
-
-        results
+        self.data.iter()
+            .filter(|&(timestamp, _) | timestamp >= min_time && timestamp <= max_time)
+            .map(|(_, price)| price.clone() as i64)
+            .collect()
     }
 
     fn select_mean(&self, query: &Query) -> i32 {
