@@ -10,6 +10,7 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/test-tcp-driver/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
       <excludeFolder url="file://$MODULE_DIR$/crates/prime-time/target" />
+      <excludeFolder url="file://$MODULE_DIR$/crates/means/target" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />

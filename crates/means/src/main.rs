@@ -11,6 +11,9 @@ use tokio::net::tcp::ReadHalf;
 use std::fmt;
 use std::fmt::Formatter;
 use std::fs::read;
+use std::collections::HashMap;
+use std::time::Duration;
+use tokio::time::timeout;
 
 impl TryFrom<&[u8]> for I32Result {
     type Error = MessageParseError;
@@ -92,20 +95,26 @@ impl fmt::Display for MessageParseError {
 
 #[derive(Default)]
 struct State {
-    data: Vec<Insert>,
+    data: HashMap<i32, i32>
 }
 
 impl State {
-    fn insert(&mut self, data: Insert) {
-        self.data.push(data)
+    fn insert(&mut self, Insert{timestamp, price}: Insert) -> Result<(), i32> {
+        if self.data.contains_key(&timestamp) {
+            return Err(timestamp)
+        }
+
+        self.data.insert(timestamp, price);
+
+        Ok(())
     }
 
-    fn select_prices(&self, Query { min_time, max_time }: &Query) -> Vec<i32> {
+    fn select_prices(&self, Query { min_time, max_time }: &Query) -> Vec<i64> {
         let mut results = vec![];
 
-        for Insert { timestamp, price } in &self.data {
-            if timestamp > min_time && timestamp < max_time {
-                results.push(price.clone())
+        for (timestamp, price) in self.data.iter() {
+            if timestamp >= min_time && timestamp <= max_time {
+                results.push(price.clone() as i64)
             }
         }
 
@@ -147,15 +156,19 @@ impl<'a> Reader<'a> {
                 .socket
                 .read(&mut read_buffer)
                 .await
-                .expect("Failed to read from socket");
+                .expect("Failed to read from stream");
 
-            match bytes_read {
+            self.remaining_buffer.extend_from_slice(&read_buffer[0..bytes_read]);
+
+            match self.remaining_buffer.len() {
                 value if value == 0 => return None,
                 _ => {
-                    self.remaining_buffer.extend_from_slice(&read_buffer[0..bytes_read]);
-
                     if let Some(message) = self.extract_next_bytes() {
                         return Some(message)
+                    }
+
+                    if bytes_read == 0 {
+                        return None
                     }
                 }
             }
@@ -170,47 +183,54 @@ async fn main() -> io::Result<()> {
     loop {
         match listener.accept().await {
             Ok((mut socket, address)) => {
-                let (read, mut write) = socket.split();
-                let mut reader = Reader::new(read);
-                let mut state = State::default();
+                tokio::spawn(async move {
+                    let (read, mut write) = socket.split();
+                    let mut reader = Reader::new(read);
+                    let mut state = State::default();
 
-                println!("[{}] OPEN", address);
+                    println!("[{}] OPEN", address);
 
-                while let Some(next_bytes) = reader.read().await {
-                    match Message::try_from(next_bytes) {
-                        Ok(message) => {
-                            println!("Received {}", message);
-                            match message {
-                                Message::Insert(insert) => state.insert(insert),
-                                Message::Query(query) => {
-                                    let results = state.select_prices(&query);
-                                    let mean = {
-                                        let total: i32 = results.iter().sum();
-
-                                        if total == 0 {
-                                            0
-                                        } else {
-                                            total / results.len() as i32
+                    while let Some(next_bytes) = reader.read().await {
+                        match Message::try_from(next_bytes) {
+                            Ok(message) => {
+                                println!("[{}] Received {}", address, message);
+                                match message {
+                                    Message::Insert(insert) => {
+                                        if let Err(_) = state.insert(insert) {
+                                            println!("Got undefined behavior at insert");
+                                            break;
                                         }
-                                    };
+                                    },
+                                    Message::Query(query) => {
+                                        let results = state.select_prices(&query);
+                                        let mean = {
+                                            let total: i64 = results.iter().sum();
 
-                                    println!("Mean {} Bytes {:?}", mean, &mean.to_be_bytes());
+                                            if total == 0 {
+                                                0
+                                            } else {
+                                                (total / results.len() as i64) as i32
+                                            }
+                                        };
 
-                                    match write.write_all(&mean.to_be_bytes()).await{
-                                        Ok(_) => println!("Write success"),
-                                        Err(e) => println!("Failed to write {}", e)
+                                        println!("[{}] Writing: {:?}", address, &mean.to_be_bytes());
+
+                                        match write.write_all(&mean.to_be_bytes()).await{
+                                            Ok(_) => println!("Write success"),
+                                            Err(e) => println!("Failed to write {}", e)
+                                        }
                                     }
                                 }
+                            },
+                            Err(e) => {
+                                println!("Got undefined behavior {}", e);
+                                break
                             }
-                        },
-                        Err(e) => {
-                            println!("Got undefined behavior {}", e);
-                            break
                         }
                     }
-                }
 
-                println!("[{}] CLOSED", address);
+                    println!("[{}] CLOSED", address);
+                });
             }
             Err(e) => {
                 println!("Failed to get client with error: {:?}", e)
