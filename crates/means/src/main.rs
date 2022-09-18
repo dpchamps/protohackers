@@ -66,9 +66,9 @@ impl<'a> Reader<'a> {
         }
     }
 
-    pub async fn read(&mut self) -> Option<Result<Message, MessageParseError>> {
+    pub async fn read(&mut self) -> Option<Message> {
         if let Some(message) = self.extract_next_bytes() {
-            return Some(message);
+            return message.ok();
         }
 
         let mut read_buffer = [0; 1024];
@@ -87,7 +87,7 @@ impl<'a> Reader<'a> {
                 value if value == 0 => return None,
                 _ => {
                     if let Some(message) = self.extract_next_bytes() {
-                        return Some(message);
+                        return message.ok()
                     }
 
                     if bytes_read == 0 {
@@ -120,7 +120,7 @@ async fn main() -> io::Result<()> {
 
                     println!("[{}] OPEN", address);
 
-                    while let Some(Ok(message)) = reader.read().await {
+                    while let Some(message) = reader.read().await {
                         println!("[{}] Received Message {}", address, message);
 
                         match handle_message(message, &mut state) {
