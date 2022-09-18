@@ -15,9 +15,9 @@ struct State {
 
 impl State {
     fn insert(&mut self, Insert { timestamp, price }: Insert) -> Result<(), i32> {
-        match self.data.insert(timestamp, price){
+        match self.data.insert(timestamp, price) {
             Some(_) => Err(timestamp),
-            None => Ok(())
+            None => Ok(()),
         }
     }
 
@@ -37,7 +37,7 @@ impl State {
         let results = self.select_prices(query);
         let total: i64 = results.iter().sum();
 
-        return if total == 0 {
+        if total == 0 {
             0
         } else {
             (total / results.len() as i64) as i32
