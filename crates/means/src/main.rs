@@ -1,13 +1,8 @@
 use http_utils::tcp_listener::ServiceTcpListener;
-use std::array::TryFromSliceError;
 
-use std::convert::TryFrom;
-
-use std::fmt;
-use std::fmt::Formatter;
 use tokio::io;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::tcp::{ReadHalf, WriteHalf};
+use tokio::net::tcp::ReadHalf;
 
 use std::collections::HashMap;
 mod message;
@@ -19,14 +14,11 @@ struct State {
 }
 
 impl State {
-    fn insert(&mut self, Insert { timestamp, price }: Insert) -> Result<(), ()> {
-        if self.data.contains_key(&timestamp) {
-            return Err(());
+    fn insert(&mut self, Insert { timestamp, price }: Insert) -> Result<(), i32> {
+        match self.data.insert(timestamp, price){
+            Some(_) => Err(timestamp),
+            None => Ok(())
         }
-
-        self.data.insert(timestamp, price);
-
-        Ok(())
     }
 
     fn select_prices(&self, Query { min_time, max_time }: &Query) -> Vec<i64> {
@@ -39,6 +31,17 @@ impl State {
         }
 
         results
+    }
+
+    fn select_mean(&self, query: &Query) -> i32 {
+        let results = self.select_prices(query);
+        let total: i64 = results.iter().sum();
+
+        return if total == 0 {
+            0
+        } else {
+            (total / results.len() as i64) as i32
+        }
     }
 }
 
@@ -70,7 +73,7 @@ impl<'a> Reader<'a> {
 
     pub async fn read(&mut self) -> Option<Result<Message, MessageParseError>> {
         if let Some(message) = self.extract_next_bytes() {
-            return Some(message)
+            return Some(message);
         }
 
         let mut read_buffer = [0; 1024];
@@ -103,27 +106,8 @@ impl<'a> Reader<'a> {
 
 fn handle_message(message: Message, state: &mut State) -> Result<Option<i32>, ()> {
     match message {
-        Message::Insert(insert) => {
-            if state.insert(insert).is_err() {
-                return Err(());
-            }
-
-            Ok(None)
-        }
-        Message::Query(query) => {
-            let results = state.select_prices(&query);
-            let mean = {
-                let total: i64 = results.iter().sum();
-
-                if total == 0 {
-                    0
-                } else {
-                    (total / results.len() as i64) as i32
-                }
-            };
-
-            Ok(Some(mean))
-        }
+        Message::Insert(insert) => state.insert(insert).map(|_| None).map_err(|_| ()),
+        Message::Query(query) => Ok(Some(state.select_mean(&query))),
     }
 }
 
@@ -144,8 +128,11 @@ async fn main() -> io::Result<()> {
                     while let Some(Ok(message)) = reader.read().await {
                         println!("[{}] Received Message {}", address, message);
 
-                        match handle_message(message, &mut state){
-                            Ok(Some(to_write)) => write.write_all(&to_write.to_be_bytes()).await.expect("Failed to write to client"),
+                        match handle_message(message, &mut state) {
+                            Ok(Some(to_write)) => write
+                                .write_all(&to_write.to_be_bytes())
+                                .await
+                                .expect("Failed to write to client"),
                             Err(_) => break,
                             _ => {}
                         }
