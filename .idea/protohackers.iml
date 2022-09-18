@@ -7,6 +7,7 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/prime-time/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/http-utils/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/means/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/test-tcp-driver/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
       <excludeFolder url="file://$MODULE_DIR$/crates/prime-time/target" />
     </content>
