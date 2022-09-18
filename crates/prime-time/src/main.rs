@@ -147,7 +147,7 @@ impl<'a> Reader<'a> {
             match bytes_read {
                 value if value == 0 => return None,
                 _ => {
-                    self.stream_buffer.push_str(&String::from_utf8(self.in_buffer[0..bytes_read].to_vec()).expect(""));
+                    self.stream_buffer.push_str(&String::from_utf8(read_buffer[0..bytes_read].to_vec()).expect(""));
 
                     if let Some(next_line) = self.read_line_from_buffer() {
                         return Some(next_line)
