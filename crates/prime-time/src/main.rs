@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 use http_utils::tcp_listener::ServiceTcpListener;
 use serde::{Deserialize, Serialize};
 
@@ -19,7 +18,9 @@ impl From<ParseStreamError> for String {
             ParseStreamError::ParseError(reason, input) => {
                 format!("Failed to parse string: {} {}", reason, input)
             }
-            ParseStreamError::InvalidObject(input) => format!("Failed to validate request object: {:?}", input),
+            ParseStreamError::InvalidObject(input) => {
+                format!("Failed to validate request object: {:?}", input)
+            }
         }
     }
 }
@@ -39,7 +40,6 @@ impl ResponseResult {
     }
 }
 
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct Request {
     method: String,
@@ -52,13 +52,13 @@ impl Request {
     }
 
     fn parse(input: &str) -> Result<Request, ParseStreamError> {
-        let result: Request = serde_json::from_str(input).map_err(|e| ParseStreamError::ParseError(e, input.into()))?;
+        let result: Request = serde_json::from_str(input)
+            .map_err(|e| ParseStreamError::ParseError(e, input.into()))?;
 
         match result.validate() {
             true => Ok(result),
-            false => Err(ParseStreamError::InvalidObject(input.into()))
+            false => Err(ParseStreamError::InvalidObject(input.into())),
         }
-
     }
 }
 
@@ -109,19 +109,21 @@ impl<'a> Reader<'a> {
     }
 
     fn create_response(input: &str) -> ResponseResult {
-        match Request::parse(input){
-            Ok(request) => {
-                ResponseResult::Prime(format!("{}\n", serde_json::to_string(&Response::from_request(&request)).expect("Failed to serialize JSON")))
-            }
-            Err(e) => ResponseResult::Malformed(String::from(e))
+        match Request::parse(input) {
+            Ok(request) => ResponseResult::Prime(format!(
+                "{}\n",
+                serde_json::to_string(&Response::from_request(&request))
+                    .expect("Failed to serialize JSON")
+            )),
+            Err(e) => ResponseResult::Malformed(String::from(e)),
         }
     }
 
-    fn read_line_from_buffer(&mut self) -> Option<ResponseResult>{
+    fn read_line_from_buffer(&mut self) -> Option<ResponseResult> {
         for (idx, c) in self.stream_buffer.chars().enumerate() {
             if c == '\n' {
                 let result = Self::create_response(&self.stream_buffer[..idx]);
-                self.stream_buffer = (self.stream_buffer[idx+1..]).into();
+                self.stream_buffer = (self.stream_buffer[idx + 1..]).into();
 
                 return Some(result);
             }
@@ -131,11 +133,11 @@ impl<'a> Reader<'a> {
     }
 
     async fn read(&mut self) -> Option<ResponseResult> {
-        if let Some(next_line) = self.read_line_from_buffer(){
+        if let Some(next_line) = self.read_line_from_buffer() {
             return Some(next_line);
         }
 
-        let mut read_buffer = [0;1024];
+        let mut read_buffer = [0; 1024];
 
         loop {
             let bytes_read = self
@@ -147,10 +149,12 @@ impl<'a> Reader<'a> {
             match bytes_read {
                 value if value == 0 => return None,
                 _ => {
-                    self.stream_buffer.push_str(&String::from_utf8(read_buffer[0..bytes_read].to_vec()).expect(""));
+                    self.stream_buffer.push_str(
+                        &String::from_utf8(read_buffer[0..bytes_read].to_vec()).expect(""),
+                    );
 
                     if let Some(next_line) = self.read_line_from_buffer() {
-                        return Some(next_line)
+                        return Some(next_line);
                     }
                 }
             }
@@ -180,7 +184,7 @@ async fn main() -> io::Result<()> {
                         match result {
                             ResponseResult::Malformed(_) => {
                                 break;
-                            },
+                            }
                             _ => {}
                         }
                     }
