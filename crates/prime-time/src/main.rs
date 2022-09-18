@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use http_utils::tcp_listener::ServiceTcpListener;
 use serde::{Deserialize, Serialize};
 
@@ -7,18 +8,18 @@ use tokio::net::tcp::ReadHalf;
 
 enum ParseStreamError {
     StringError,
-    ParseError(serde_json::Error),
-    InvalidObject,
+    ParseError(serde_json::Error, String),
+    InvalidObject(String),
 }
 
 impl From<ParseStreamError> for String {
     fn from(e: ParseStreamError) -> Self {
         match e {
             ParseStreamError::StringError => "Failed to parse tcp buffer into string".into(),
-            ParseStreamError::ParseError(reason) => {
-                format!("Failed to parse string into Result: {}", reason)
+            ParseStreamError::ParseError(reason, input) => {
+                format!("Failed to parse string: {} {}", reason, input)
             }
-            ParseStreamError::InvalidObject => "Failed to validate request object".into(),
+            ParseStreamError::InvalidObject(input) => format!("Failed to validate request object: {:?}", input),
         }
     }
 }
@@ -38,10 +39,11 @@ impl ResponseResult {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct Request {
     method: String,
-    number: f32,
+    number: f64,
 }
 
 impl Request {
@@ -49,11 +51,14 @@ impl Request {
         self.method == "isPrime"
     }
 
-    fn parse(result: &[u8]) -> Result<Vec<Request>, ParseStreamError> {
-        return String::from_utf8(result.to_vec()).map_err(|_| ParseStreamError::StringError)?
-            .lines()
-            .map(|x| serde_json::from_str(x.trim()).map_err(ParseStreamError::ParseError))
-            .collect();
+    fn parse(input: &str) -> Result<Request, ParseStreamError> {
+        let result: Request = serde_json::from_str(input).map_err(|e| ParseStreamError::ParseError(e, input.into()))?;
+
+        match result.validate() {
+            true => Ok(result),
+            false => Err(ParseStreamError::InvalidObject(input.into()))
+        }
+
     }
 }
 
@@ -64,13 +69,14 @@ struct Response {
 }
 
 impl Response {
-    fn is_prime_number(n: f32) -> bool {
-        let n_int: u32 = n as u32;
-        if n_int <= 1 || n_int as f32 != n {
+    fn is_prime_number(n: f64) -> bool {
+        let n_int: u64 = n as u64;
+
+        if n <= 1.0 || n.floor() != n {
             return false;
         }
 
-        for i in 2..=(n as f32).sqrt() as u32 {
+        for i in 2..=(n.sqrt() as u64) {
             if n_int % i == 0 {
                 return false;
             }
@@ -79,82 +85,76 @@ impl Response {
         true
     }
 
-    fn create_is_prime(prime: bool) -> Self {
-        Response {
-            method: "isPrime".into(),
-            prime,
-        }
-    }
-
     fn from_request(Request { number, .. }: &Request) -> Response {
         let is_prime = Self::is_prime_number(*number);
 
-        Response::create_is_prime(is_prime)
+        Response {
+            method: "isPrime".into(),
+            prime: is_prime,
+        }
     }
 }
 
 struct Reader<'a> {
     socket: ReadHalf<'a>,
-    in_buffer: Vec<u8>,
-    out_buffer: Vec<ResponseResult>
+    stream_buffer: String,
 }
 
 impl<'a> Reader<'a> {
     fn new(socket: ReadHalf<'a>) -> Self {
         Self {
             socket,
-            in_buffer: vec![0; 1024],
-            out_buffer: vec![]
+            stream_buffer: String::new(),
         }
     }
 
-    fn create_response(buffer: &[u8]) -> Vec<ResponseResult> {
-        match Request::parse(buffer) {
+    fn create_response(input: &str) -> ResponseResult {
+        match Request::parse(input){
             Ok(request) => {
-                let response = request
-                    .iter()
-                    .map(|req| match req.validate() {
-                        true => ResponseResult::Prime(format!(
-                            "{}\n",
-                            serde_json::to_string(&Response::from_request(req))
-                                .expect("Couldn't Deserialize json")
-                        )),
-                        _ => ResponseResult::Malformed(format!("Received incorrect method: {}\n", req.method)),
-                    })
-                    .collect();
-
-                response
+                ResponseResult::Prime(format!("{}\n", serde_json::to_string(&Response::from_request(&request)).expect("Failed to serialize JSON")))
             }
-            Err(e) => {
-                let error = format!("{}\n", String::from(e));
-                println!("Got malformed request: {}", &error);
-                vec![ResponseResult::Malformed(error)]
+            Err(e) => ResponseResult::Malformed(String::from(e))
+        }
+    }
+
+    fn read_line_from_buffer(&mut self) -> Option<ResponseResult>{
+        for (idx, c) in self.stream_buffer.chars().enumerate() {
+            if c == '\n' {
+                let result = Self::create_response(&self.stream_buffer[..idx]);
+                self.stream_buffer = (self.stream_buffer[idx+1..]).into();
+
+                return Some(result);
             }
         }
+
+        None
     }
 
     async fn read(&mut self) -> Option<ResponseResult> {
-        if let Some(next) = self.out_buffer.pop(){
-            return Some(next);
+        if let Some(next_line) = self.read_line_from_buffer(){
+            return Some(next_line);
         }
 
+        let mut read_buffer = [0;1024];
 
-        let bytes_read = self
-            .socket
-            .read(&mut self.in_buffer)
-            .await
-            .expect("failed to read data from socket");
+        loop {
+            let bytes_read = self
+                .socket
+                .read(&mut read_buffer)
+                .await
+                .expect("failed to read data from socket");
 
-        if bytes_read == 0 {
-            return None;
+            match bytes_read {
+                value if value == 0 => return None,
+                _ => {
+                    self.stream_buffer.push_str(&String::from_utf8(self.in_buffer[0..bytes_read].to_vec()).expect(""));
+
+                    if let Some(next_line) = self.read_line_from_buffer() {
+                        return Some(next_line)
+                    }
+                }
+            }
         }
-
-        let response =  Self::create_response(&self.in_buffer[0..bytes_read]);
-        let (head, tail) = response.split_at(1);
-
-        self.out_buffer.append(&mut tail.to_vec());
-
-        Some(head[0].clone())
     }
 }
 
@@ -169,7 +169,7 @@ async fn main() -> io::Result<()> {
                     let (read, mut write) = socket.split();
                     let mut reader = Reader::new(read);
 
-                    println!("Connection Open {}", address);
+                    println!("[{}] OPEN", address);
 
                     while let Some(result) = reader.read().await {
                         write
@@ -178,12 +178,14 @@ async fn main() -> io::Result<()> {
                             .expect("Failed to write to socket");
 
                         match result {
-                            ResponseResult::Malformed(_) => break,
+                            ResponseResult::Malformed(_) => {
+                                break;
+                            },
                             _ => {}
                         }
                     }
 
-                    println!("Connection Closed {}", address);
+                    println!("[{}] CLOSED", address);
                 });
             }
             Err(e) => {
