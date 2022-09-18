@@ -1,19 +1,15 @@
 use http_utils::tcp_listener::ServiceTcpListener;
 use std::array::TryFromSliceError;
-use std::collections::VecDeque;
 
-use crate::MessageParseError::ByteRangeError;
 use std::convert::TryFrom;
-use std::ops::Deref;
+
+use std::fmt;
+use std::fmt::Formatter;
 use tokio::io;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::ReadHalf;
-use std::fmt;
-use std::fmt::Formatter;
-use std::fs::read;
+
 use std::collections::HashMap;
-use std::time::Duration;
-use tokio::time::timeout;
 
 impl TryFrom<&[u8]> for I32Result {
     type Error = MessageParseError;
@@ -55,8 +51,12 @@ impl TryFrom<[u8; 9]> for Message {
 impl fmt::Display for Message {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Message::Insert(Insert{timestamp, price}) => write!(f, "Insert\t{}\t{}", timestamp, price),
-            Message::Query(Query{min_time, max_time}) => write!(f, "Query\t{}\t{}", min_time, max_time)
+            Message::Insert(Insert { timestamp, price }) => {
+                write!(f, "Insert\t{}\t{}", timestamp, price)
+            }
+            Message::Query(Query { min_time, max_time }) => {
+                write!(f, "Query\t{}\t{}", min_time, max_time)
+            }
         }
     }
 }
@@ -87,21 +87,25 @@ enum MessageParseError {
 impl fmt::Display for MessageParseError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            MessageParseError::InvalidMessageType(message_type) => write!(f, "Received an invalid message type: {} ", message_type),
-            MessageParseError::ByteRangeError(e, v) => write!(f, "Couldn't coerce range from slice: {} {:?}", e, v)
+            MessageParseError::InvalidMessageType(message_type) => {
+                write!(f, "Received an invalid message type: {} ", message_type)
+            }
+            MessageParseError::ByteRangeError(e, v) => {
+                write!(f, "Couldn't coerce range from slice: {} {:?}", e, v)
+            }
         }
     }
 }
 
 #[derive(Default)]
 struct State {
-    data: HashMap<i32, i32>
+    data: HashMap<i32, i32>,
 }
 
 impl State {
-    fn insert(&mut self, Insert{timestamp, price}: Insert) -> Result<(), i32> {
+    fn insert(&mut self, Insert { timestamp, price }: Insert) -> Result<(), i32> {
         if self.data.contains_key(&timestamp) {
-            return Err(timestamp)
+            return Err(timestamp);
         }
 
         self.data.insert(timestamp, price);
@@ -114,22 +118,25 @@ impl State {
 
         for (timestamp, price) in self.data.iter() {
             if timestamp >= min_time && timestamp <= max_time {
-                results.push(price.clone() as i64)
+                results.push(*price as i64)
             }
         }
 
-        return results;
+        results
     }
 }
 
 struct Reader<'a> {
     socket: ReadHalf<'a>,
-    remaining_buffer: Vec<u8>
+    remaining_buffer: Vec<u8>,
 }
 
 impl<'a> Reader<'a> {
     pub fn new(socket: ReadHalf<'a>) -> Self {
-        Self { socket, remaining_buffer: vec![] }
+        Self {
+            socket,
+            remaining_buffer: vec![],
+        }
     }
 
     pub fn extract_next_bytes(&mut self) -> Option<[u8; 9]> {
@@ -139,14 +146,14 @@ impl<'a> Reader<'a> {
                 next.copy_from_slice(&self.remaining_buffer[0..=8]);
                 self.remaining_buffer = self.remaining_buffer[9..].to_vec();
 
-                return Some(next.try_into().expect("This is an unreachable error"));
-            },
-            _ => None
+                Some(next.try_into().expect("This is an unreachable error"))
+            }
+            _ => None,
         }
     }
     pub async fn read(&mut self) -> Option<[u8; 9]> {
         if let Some(message) = self.extract_next_bytes() {
-            return Some(message)
+            return Some(message);
         }
 
         let mut read_buffer = [0; 1024];
@@ -158,17 +165,18 @@ impl<'a> Reader<'a> {
                 .await
                 .expect("Failed to read from stream");
 
-            self.remaining_buffer.extend_from_slice(&read_buffer[0..bytes_read]);
+            self.remaining_buffer
+                .extend_from_slice(&read_buffer[0..bytes_read]);
 
             match self.remaining_buffer.len() {
                 value if value == 0 => return None,
                 _ => {
                     if let Some(message) = self.extract_next_bytes() {
-                        return Some(message)
+                        return Some(message);
                     }
 
                     if bytes_read == 0 {
-                        return None
+                        return None;
                     }
                 }
             }
@@ -196,11 +204,11 @@ async fn main() -> io::Result<()> {
                                 println!("[{}] Received {}", address, message);
                                 match message {
                                     Message::Insert(insert) => {
-                                        if let Err(_) = state.insert(insert) {
+                                        if state.insert(insert).is_err() {
                                             println!("Got undefined behavior at insert");
                                             break;
                                         }
-                                    },
+                                    }
                                     Message::Query(query) => {
                                         let results = state.select_prices(&query);
                                         let mean = {
@@ -213,18 +221,22 @@ async fn main() -> io::Result<()> {
                                             }
                                         };
 
-                                        println!("[{}] Writing: {:?}", address, &mean.to_be_bytes());
+                                        println!(
+                                            "[{}] Writing: {:?}",
+                                            address,
+                                            &mean.to_be_bytes()
+                                        );
 
-                                        match write.write_all(&mean.to_be_bytes()).await{
+                                        match write.write_all(&mean.to_be_bytes()).await {
                                             Ok(_) => println!("Write success"),
-                                            Err(e) => println!("Failed to write {}", e)
+                                            Err(e) => println!("Failed to write {}", e),
                                         }
                                     }
                                 }
-                            },
+                            }
                             Err(e) => {
                                 println!("Got undefined behavior {}", e);
-                                break
+                                break;
                             }
                         }
                     }
