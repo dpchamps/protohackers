@@ -2,5 +2,6 @@
 members = [
     "crates/echo-service",
     "crates/prime-time",
-    "crates/http-utils"
+    "crates/http-utils",
+    "crates/means"
 ]
