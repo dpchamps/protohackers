@@ -150,11 +150,11 @@ impl<'a> Reader<'a> {
         }
 
         let response =  Self::create_response(&self.in_buffer[0..bytes_read]);
-        let (head, mut tail) = response.split_at(1);
+        let (head, tail) = response.split_at(1);
 
         self.out_buffer.append(&mut tail.to_vec());
 
-        return Some(head[0].clone())
+        Some(head[0].clone())
     }
 }
 
